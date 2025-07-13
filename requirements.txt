@@ -1,7 +1,5 @@
 streamlit==1.46.1
-azure-identity
-azure-ai-projects
-azure-ai-agents
+azure-identity==1.23.0
+azure-ai-projects==1.0.0b12
+azure-ai-agents==1.0.2
 requests        # if you call the Logic App
-azure-identity
-azure-ai-projects
