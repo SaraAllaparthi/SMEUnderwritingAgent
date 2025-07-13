@@ -3,3 +3,5 @@ azure-identity
 azure-ai-projects
 azure-ai-agents
 requests        # if you call the Logic App
+azure-identity
+azure-ai-projects
