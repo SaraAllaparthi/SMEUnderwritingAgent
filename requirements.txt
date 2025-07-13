@@ -1,4 +1,4 @@
-streamlit
+streamlit==1.46.1
 azure-identity
 azure-ai-projects
 azure-ai-agents
