@@ -1,36 +1,48 @@
-import streamlit as st
-from azure.ai.projects import AIProjectClient
-from azure.identity import DefaultAzureCredential
-from azure.ai.agents.models import ListSortOrder
+import os, requests
+from azure.identity import ClientSecretCredential
 
-endpoint = ("https://sara-openai-underwritin-resource.services.ai.azure.com"
-            "/api/projects/sara-openai-underwritin-project")
-agent_id = "asst_0N9JnFU6reHLbJqS4wMbysEu"
+# Grab secrets from env-vars (set this later in Streamlit Cloud)
+ENDPOINT  = os.environ["AI_ENDPOINT"].rstrip("/")
+AGENT_ID  = os.environ["AGENT_ID"]
+TENANT    = os.environ["AZURE_TENANT_ID"]
+CLIENT_ID = os.environ["AZURE_CLIENT_ID"]
+SECRET    = os.environ["AZURE_CLIENT_SECRET"]
 
-@st.cache_resource
-def get_client():
-    cred = DefaultAzureCredential()
-    return AIProjectClient(credential=cred, endpoint=endpoint)
+# Get an Azure access-token once at start-up
+cred   = ClientSecretCredential(TENANT, CLIENT_ID, SECRET)
+token  = cred.get_token("https://ai.azure.com/.default").token
+HEADERS = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-def chat(user_text):
-    client = get_client()
-    thread = client.agents.threads.create()
-    client.agents.messages.create(thread_id=thread.id,
-                                  role="user", content=user_text)
-    run = client.agents.runs.create_and_process(thread_id=thread.id,
-                                                agent_id=agent_id)
+def ask_agent(question: str) -> str:
+    """Send one question and return the assistant’s first reply text."""
+    # 1) new thread
+    th = requests.post(f"{ENDPOINT}/threads", headers=HEADERS).json()
+    thread_id = th["id"]
 
-    if run.status == "failed":
-        return f"⚠️ Agent error: {run.last_error}"
-    msgs = client.agents.messages.list(thread_id=thread.id,
-                                       order=ListSortOrder.ASCENDING)
-    return "\n".join(
-        f"**{m.role}**: {m.text_messages[-1].text.value}"
-        for m in msgs if m.text_messages
+    # 2) user message
+    requests.post(
+        f"{ENDPOINT}/threads/{thread_id}/messages",
+        headers=HEADERS,
+        json={"role": "user", "content": question},
     )
 
-st.title("SME Underwriting AI Agent")
-prompt = st.chat_input("Ask me anything...")
-if prompt:
-    with st.spinner("Thinking…"):
-        st.write(chat(prompt))
+    # 3) run the agent (synchronous “create_and_process”)
+    run = requests.post(
+        f"{ENDPOINT}/threads/{thread_id}/runs:createAndProcess",
+        headers=HEADERS,
+        json={"agent_id": AGENT_ID},
+    ).json()
+
+    if run["status"] == "failed":
+        raise RuntimeError(run.get("last_error", "unknown error"))
+
+    # 4) list messages in chronological order
+    msgs = requests.get(
+        f"{ENDPOINT}/threads/{thread_id}/messages?order=asc", headers=HEADERS
+    ).json()["data"]
+
+    # assistant’s last message = answer
+    answer_blocks = [
+        blk["text"] for m in msgs if m["role"] == "assistant" for blk in m["content"]
+    ]
+    return "\n\n".join(answer_blocks) if answer_blocks else "(no answer)"
